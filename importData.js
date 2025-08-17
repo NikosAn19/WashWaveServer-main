@@ -1,62 +1,63 @@
-// importData.js
 const fs = require("fs");
 const csv = require("csv-parser");
 const mongoose = require("mongoose");
 
-// Σύνδεση με MongoDB (η βάση "mydatabase" δημιουργείται αυτόματα αν δεν υπάρχει)
+// Σύνδεση με MongoDB (δημιουργείται αυτόματα η βάση αν δεν υπάρχει)
 const mongoURI = "mongodb://localhost:27017/mydatabase";
 mongoose
   .connect(mongoURI)
   .then(async () => {
-    console.log("Connected to MongoDB");
+    console.log("✅ Συνδέθηκε επιτυχώς στη MongoDB");
 
-    // (Προαιρετικά) Drop collections για καθαρή εκκίνηση
+    // (Προαιρετικά) διαγράφουμε τις συλλογές για καθαρή εισαγωγή
     try {
       await mongoose.connection.db.dropCollection("carwashes");
-      console.log("Dropped collection: carwashes");
+      console.log("🗑️ Διαγράφηκε η συλλογή carwashes");
     } catch (err) {
-      console.warn("No carwashes collection to drop.");
+      console.warn("⚠️ Η συλλογή carwashes δεν υπήρχε.");
     }
     try {
       await mongoose.connection.db.dropCollection("services");
-      console.log("Dropped collection: services");
+      console.log("🗑️ Διαγράφηκε η συλλογή services");
     } catch (err) {
-      console.warn("No services collection to drop.");
+      console.warn("⚠️ Η συλλογή services δεν υπήρχε.");
     }
 
-    await importCarWashes(); // Εισαγωγή CarWash εγγράφων
-    await importServices();  // Εισαγωγή Service εγγράφων
+    // Εκτελούμε την εισαγωγή των εγγραφών
+    await importCarWashes(); // Πλυντήρια
+    await importServices();  // Υπηρεσίες
 
-    mongoose.disconnect();
+    mongoose.disconnect(); // Τερματισμός σύνδεσης
   })
-  .catch((err) => console.error("MongoDB connection error:", err));
+  .catch((err) => console.error("❌ Σφάλμα σύνδεσης MongoDB:", err));
 
 // Εισαγωγή μοντέλων
 const CarWash = require("./models/CarWash");
 const Service = require("./models/Service");
 
 /**
- * Εισαγωγή δεδομένων CarWash από το CSV.
- * Το CSV (CarWash.csv) έχει τις στήλες:
- * car_wash_id, name, address, city, state, zip_code, phone_number, working_hours, created_at
- * Θα χρησιμοποιήσουμε το car_wash_id ως legacy_id για το mapping.
+ * Διαβάζει το αρχείο CarWash.csv και εισάγει τα δεδομένα στο MongoDB.
  */
 function importCarWashes() {
   return new Promise((resolve, reject) => {
     const results = [];
+
+    // Ανάγνωση CSV
     fs.createReadStream("CarWash.csv")
       .pipe(csv())
       .on("data", (data) => results.push(data))
       .on("end", async () => {
-        console.log("CarWash CSV parsed. Number of rows:", results.length);
+        console.log("📄 Επεξεργασία CarWash CSV ολοκληρώθηκε:", results.length, "γραμμές");
+
         try {
           for (const row of results) {
-            // Μετατροπή της τιμής car_wash_id σε αριθμό για το legacy_id.
             const legacyId = parseInt(row.car_wash_id, 10);
             if (isNaN(legacyId)) {
-              console.error(`Invalid legacy id value: ${row.car_wash_id}. Skipping row.`);
+              console.error(`❌ Μη έγκυρο car_wash_id: ${row.car_wash_id}`);
               continue;
             }
+
+            // Δημιουργία νέου εγγράφου CarWash
             const carWash = new CarWash({
               legacy_id: legacyId,
               name: row.name,
@@ -68,53 +69,57 @@ function importCarWashes() {
               working_hours: row.working_hours,
               created_at: row.created_at ? new Date(row.created_at) : Date.now(),
             });
-            await carWash.save();
+
+            await carWash.save(); // Αποθήκευση στη βάση
           }
-          console.log("CarWash data imported successfully.");
+
+          console.log("✅ Εισαγωγή CarWash εγγραφών ολοκληρώθηκε.");
           resolve();
         } catch (error) {
-          console.error("Error importing CarWash data:", error);
+          console.error("❌ Σφάλμα κατά την εισαγωγή CarWash:", error);
           reject(error);
         }
       })
       .on("error", (error) => {
-        console.error("Error reading CarWash CSV:", error);
+        console.error("❌ Σφάλμα ανάγνωσης CarWash CSV:", error);
         reject(error);
       });
   });
 }
 
 /**
- * Εισαγωγή δεδομένων Services από το CSV.
- * Το CSV (Service.csv) έχει τις στήλες:
- * service_id, car_wash_id, name, description, price, duration, vehicle_type, created_at
- * Το πεδίο service_id είναι virtual και δεν χρησιμοποιείται.
- * Το car_wash_id στο CSV είναι ένας αριθμός (legacy id). Κάνουμε lookup στο CarWash collection βάσει του legacy_id.
+ * Διαβάζει το αρχείο Service.csv και εισάγει τα δεδομένα,
+ * συνδέοντάς τα με τα πλυντήρια βάσει του legacy_id.
  */
 function importServices() {
   return new Promise((resolve, reject) => {
     const results = [];
+
+    // Ανάγνωση CSV
     fs.createReadStream("Service.csv")
       .pipe(csv())
       .on("data", (data) => results.push(data))
       .on("end", async () => {
-        console.log("Services CSV parsed. Number of rows:", results.length);
+        console.log("📄 Επεξεργασία Service CSV ολοκληρώθηκε:", results.length, "γραμμές");
+
         try {
           for (const row of results) {
-            // Μετατροπή της τιμής car_wash_id σε Number (legacy id)
             const legacyId = parseInt(row.car_wash_id, 10);
             if (isNaN(legacyId)) {
-              console.error(`Invalid car_wash_id value: ${row.car_wash_id}. Skipping row.`);
+              console.error(`❌ Μη έγκυρο car_wash_id: ${row.car_wash_id}`);
               continue;
             }
-            // Αναζήτηση στο CarWash με βάση το legacy_id
+
+            // Βρίσκουμε το σχετικό CarWash με βάση το legacy_id
             const carWashDoc = await CarWash.findOne({ legacy_id: legacyId });
             if (!carWashDoc) {
-              console.error(`No CarWash found for legacy_id: ${row.car_wash_id}. Skipping this service.`);
+              console.error(`⚠️ Δεν βρέθηκε CarWash για legacy_id: ${legacyId}`);
               continue;
             }
+
+            // Δημιουργία νέας υπηρεσίας
             const newService = new Service({
-              car_wash_id: carWashDoc._id, // Χρησιμοποιούμε το ObjectId του CarWash document
+              car_wash_id: carWashDoc._id,
               name: row.name,
               description: row.description,
               price: parseFloat(row.price),
@@ -122,19 +127,21 @@ function importServices() {
               vehicle_type: row.vehicle_type,
               created_at: row.created_at ? new Date(row.created_at) : Date.now(),
             });
-            await newService.save();
-            console.log(`Imported service: ${newService.name}`);
+
+            await newService.save(); // Αποθήκευση υπηρεσίας
+            console.log(`✅ Υπηρεσία αποθηκεύτηκε: ${newService.name}`);
           }
-          console.log("All services imported successfully.");
+
+          console.log("✅ Όλες οι υπηρεσίες αποθηκεύτηκαν.");
           resolve();
         } catch (error) {
-          console.error("Error importing Services data:", error);
+          console.error("❌ Σφάλμα κατά την εισαγωγή υπηρεσιών:", error);
           reject(error);
         }
       })
       .on("error", (error) => {
-        console.error("Error reading Services CSV:", error);
+        console.error("❌ Σφάλμα ανάγνωσης Service CSV:", error);
         reject(error);
       });
-  })
+  });
 }

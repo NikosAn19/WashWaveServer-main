@@ -1,45 +1,30 @@
-// server.js
+// Βασικές βιβλιοθήκες
 const express = require("express");
 const mongoose = require("mongoose");
 const app = express();
 
-// Middleware για να διαβάζουμε JSON στο body των αιτήσεων
+// Middleware για JSON requests
 app.use(express.json());
 
-// Σύνδεση με MongoDB
-const mongoURI = "mongodb://localhost:27017/mydatabase"; // Αν χρησιμοποιείς το MongoDB τοπικά
-// Για MongoDB Atlas, θα έχεις μια σύνδεση σε URL μορφή.
-mongoose
-  .connect(mongoURI)
-  .then(() => console.log("Connected to MongoDB"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+// Σύνδεση με MongoDB (τοπικά)
+mongoose.connect("mongodb://localhost:27017/mydatabase")
+  .then(() => console.log("✅ Συνδέθηκε με MongoDB"))
+  .catch((err) => console.error("❌ Σφάλμα σύνδεσης:", err));
 
-// Δείγμα route
+// Βασικό route για έλεγχο λειτουργίας
 app.get("/", (req, res) => {
-  res.send("Hello from the Node.js server!");
+  res.send("Node.js server is running");
 });
 
-// Ενσωμάτωση του auth router
-const authRouter = require("./routes/auth");
-app.use("/api/auth", authRouter);
-// Ενσωμάτωση των user endpoints
-const userRouter = require("./routes/user");
-app.use("/api/user", userRouter);
+// Ενσωμάτωση routes
+app.use("/api/auth", require("./routes/auth"));
+app.use("/api/user", require("./routes/user"));
+app.use("/api/services", require("./routes/services"));
+app.use("/api/history", require("./routes/history"));
+app.use("/api/carwashes", require("./routes/carwashes"));
 
-// Services router
-const servicesRouter = require("./routes/services");
-app.use("/api/services", servicesRouter);
-
-// History router
-const historyRouter = require("./routes/history");
-app.use("/api/history", historyRouter);
-
-// Carwashes Router
-const carwashesRouter = require("./routes/carwashes");
-app.use("/api/carwashes", carwashesRouter);
-
-// Ορισμός του port
+// Εκκίνηση server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server listening on port ${PORT}`);
 });

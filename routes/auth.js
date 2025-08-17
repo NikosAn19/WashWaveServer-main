@@ -3,37 +3,42 @@ const router = express.Router();
 const User = require("../models/User");
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
 
-// Ρύθμιση NodeMailer (χρησιμοποιώντας π.χ. Ethereal ή άλλο provider)
-const transporter = nodemailer.createTransport({
-    host: 'smtp.ethereal.email',
-    port: 587,
-    auth: {
-        user: 'willy.raynor@ethereal.email',
-        pass: 'mYdptxxjcuceXFbESm'
-    },
-    tls: {
-      // Σημαντικό: Απενεργοποιεί την επαλήθευση πιστοποιητικού για τις δοκιμές (δεν χρησιμοποιείται σε παραγωγή)
-      rejectUnauthorized: false
-    }
-});
-
-// Register endpoint
+// === ΕΓΓΡΑΦΗ ΧΡΗΣΤΗ ===
 router.post("/register", async (req, res) => {
   try {
-    const { email, password, phone_number, first_name, last_name, address, city, state, zip_code } = req.body;
+    const {
+      email,
+      password,
+      phone_number,
+      first_name,
+      last_name,
+      address,
+      city,
+      state,
+      zip_code,
+    } = req.body;
+
+    console.log("📥 Αίτημα εγγραφής για:", email);
+
+    // Έλεγχος αν υπάρχει ήδη χρήστης με αυτό το email
     let user = await User.findOne({ email });
     if (user) {
-      return res.status(400).json({ message: "User already exists." });
+      console.log("❌ Υπάρχει ήδη χρήστης με email:", email);
+      return res.status(400).json({
+        message:
+          "Αυτό το email χρησιμοποιείται ήδη. Δοκίμασε κάποιο άλλο ή κάνε Σύνδεση αν έχεις ήδη λογαριασμό!",
+      });
     }
 
+    // Κρυπτογράφηση κωδικού πρόσβασης
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
 
-    // Δημιουργία κωδικού επαλήθευσης (π.χ. 6 ψηφία)
+    // Δημιουργία τυχαίου κωδικού επιβεβαίωσης 6 ψηφίων
     const verification_code = crypto.randomInt(100000, 999999).toString();
 
+    // Δημιουργία και αποθήκευση χρήστη
     user = new User({
       email,
       password_hash,
@@ -50,83 +55,104 @@ router.post("/register", async (req, res) => {
     });
 
     await user.save();
+    console.log("✅ Ο χρήστης δημιουργήθηκε με ID:", user._id);
 
-    // Αποστολή email επαλήθευσης
-    const mailOptions = {
-      from: '"WashWave" <no-reply@washwave.com>',
-      to: email,
-      subject: "Email Verification",
-      text: `Your verification code is: ${verification_code}. Please enter it in the app to verify your email.`,
-    };
-
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.error("Error sending email:", error);
-        return res.status(500).json({ message: "Error sending verification email." });
-      }
-      console.log("Verification email sent:", info.response);
-      const responsePayload = { message: "User registered. Verification code sent to email.", verification_code:verification_code };
-      // if (process.env.NODE_ENV !== "production") {
-      //   responsePayload.verification_code = verification_code;
-      // }
-      return res.status(200).json(responsePayload);
+    // Επιστροφή επιβεβαίωσης (χωρίς αποστολή email)
+    return res.status(200).json({
+      message:
+        "Η εγγραφή ολοκληρώθηκε. Ο κωδικός επιβεβαίωσης είναι διαθέσιμος στο response για δοκιμαστικούς σκοπούς.",
+      verification_code: verification_code,
     });
-    
   } catch (error) {
-    console.error("Error in /register:", error);
-    res.status(500).json({ message: "Server error." });
+    console.error("❗ Σφάλμα κατά την εγγραφή:", error);
+    res.status(500).json({ message: "Σφάλμα διακομιστή." });
   }
 });
 
-// Email verification endpoint (μέσα στο auth.js)
+// === ΕΠΙΒΕΒΑΙΩΣΗ EMAIL ===
 router.post("/verify", async (req, res) => {
   try {
     const { email, verification_code } = req.body;
+    console.log("📩 Επαλήθευση email για:", email);
+
     const user = await User.findOne({ email });
+
     if (!user) {
-      return res.status(400).json({ message: "User not found." });
+      console.log("❌ Δεν βρέθηκε χρήστης με email:", email);
+      return res.status(400).json({
+        message:
+          "Δεν βρέθηκε λογαριασμός με αυτό το email. Δοκίμασε ξανά ή κάνε Εγγραφή.",
+      });
     }
+
     if (user.verification_code !== verification_code) {
-      return res.status(400).json({ message: "Invalid verification code." });
+      console.log("❌ Λανθασμένος κωδικός επιβεβαίωσης για:", email);
+      return res
+        .status(400)
+        .json({ message: "Ο κωδικός επαλήθευσης δεν είναι έγκυρος." });
     }
+
     user.is_verified = true;
-    user.verification_code = undefined; // Προαιρετικά: καθαρίζουμε τον κωδικό
+    user.verification_code = undefined;
     await user.save();
-    res.status(200).json({ message: "Email verified successfully.",user: {
-      first_name: user.first_name,
-      last_name: user.last_name,
-      email: user.email
-    } });
+
+    console.log("✅ Επιβεβαίωση email για χρήστη:", user.email);
+    res.status(200).json({
+      message: "Το e-mail έχει επιβεβαιωθεί με επιτυχία!",
+      user: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+    });
   } catch (error) {
-    console.error("Error in /verify:", error);
-    res.status(500).json({ message: "Server error." });
+    console.error("❗ Σφάλμα στην επαλήθευση:", error);
+    res.status(500).json({ message: "Σφάλμα διακομιστή." });
   }
 });
 
-// Login endpoint
+// === ΣΥΝΔΕΣΗ ΧΡΗΣΤΗ ===
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log("🔐 Απόπειρα σύνδεσης με email:", email);
+
     const user = await User.findOne({ email });
+
     if (!user) {
-      return res.status(400).json({ message: "Invalid credentials." });
+      console.log("❌ Δεν βρέθηκε χρήστης για σύνδεση:", email);
+      return res
+        .status(400)
+        .json({ message: "Λάθος στοιχεία. Παρακαλώ προσπαθήστε ξανά!" });
     }
+
     if (!user.is_verified) {
-      return res.status(400).json({ message: "Please verify your email before logging in." });
+      console.log("⚠️ Το email δεν έχει επιβεβαιωθεί για:", email);
+      return res.status(400).json({
+        message: "Παρακαλώ επιβεβαιώστε το e-mail σας πριν την σύνδεση.",
+      });
     }
+
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials." });
+      console.log("❌ Λανθασμένος κωδικός για:", email);
+      return res
+        .status(400)
+        .json({ message: "Λάθος στοιχεία. Παρακαλώ προσπαθήστε ξανά!" });
     }
-    res.status(200).json({ message: "Login successful." ,
+
+    console.log("✅ Επιτυχής σύνδεση για:", email);
+    res.status(200).json({
+      message: "Έχεις συνδεθεί επιτυχώς!",
       user: {
-      first_name: user.first_name,
-      last_name: user.last_name,
-      email: user.email
-    }});
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+      },
+    });
   } catch (error) {
-    console.error("Error in /login:", error);
-    res.status(500).json({ message: "Server error." });
+    console.error("❗ Σφάλμα κατά τη σύνδεση:", error);
+    res.status(500).json({ message: "Σφάλμα διακομιστή." });
   }
 });
 
